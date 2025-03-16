@@ -1,0 +1,2 @@
+nasm -f elf64 -l list.txt myPrint.asm;
+g++ -static testPrint.cpp myPrint.o -o testPrint
