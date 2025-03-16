@@ -12,8 +12,8 @@
 ;----------------------------------------------------------------------------
 END_OF_STRING equ 0d
 PERCENT_ASCII equ 37d
-BUF_SIZE 	  equ 16
-DIV_BUF_SIZE  equ 64
+BUF_SIZE 	  equ 16d
+DIV_BUF_SIZE  equ 64d
 
 ;----------------------------------------------------------------------------
 ;									CODE
@@ -39,15 +39,17 @@ global myPrint								;for linker and C code
 myPrint:
 
 		cld
+		pop rax
+
 		push r9 					;|push argumets in stack
 		push r8 					;|
 		push rcx					;|
 		push rdx					;|
 		push rsi 					;|
 
+		mov  r8, rax
 		push rbp					;set_new base point
 		mov  rbp, rsp
-		push bx
 
 		mov  rcx, 1					;argument offset
 		xor  rax, rax				;writen sybmols
@@ -83,10 +85,10 @@ myPrint:
 		syscall
 
 		pop rax
-		pop bx
 		pop rbp
 		add rsp, 8*5
 
+		push r8
 		ret
 
 
@@ -141,26 +143,26 @@ putCharInBuffer:		;TODO(maybe useless): create variable in stack frame which wil
 ;		rbx	<------------------------------------------------------------------------------MAYBE DANGER. BE CAREFUL
 ;----------------------------------------------------------------------------
 percentHandler:
-		xor rbx, rbx
-		mov byte bl, [rsi]
-		cmp byte bl, PERCENT_ASCII				;maybe pop address
+		xor rdx, rdx
+		mov byte dl, [rsi]
+		cmp byte dl, PERCENT_ASCII				;maybe pop address
 		jne switcher
 
 		inc rax
-		mov byte [rdi], bl
+		mov byte [rdi], dl
 		inc rdi
 		inc rsi
 		ret
 
 	switcher:
-		sub bl, 98					;TODO: replace magic nubber
+		sub dl, 98					;TODO: replace magic nubber
 
-		cmp bl, 0
+		cmp dl, 0
 		jb SWITCH_END
-		cmp bl, 22
+		cmp dl, 22
 		ja SWITCH_END
 
-		jmp [JMP_TABLE + rbx * 8]
+		jmp [JMP_TABLE + rdx * 8]
 
 	SWITCH_END:
 		ret
@@ -179,7 +181,7 @@ process_ascii:
 		ret
 
 ;r10 = base
-process_dec_oct_bin:
+process_number:
 		push rax			;save rax
 		xor  rax, rax
 		xor  rdx, rdx
@@ -193,7 +195,12 @@ process_dec_oct_bin:
 		div r10
 		mov byte [r11], dl 				;get ascii number in buffer
  		add byte [r11], '0'				;
-		xor rdx, rdx
+
+		cmp dl, 10
+		jb less_10
+		add byte [r11], 7				;TODO: REMOVE MAGIC NUMBER
+	less_10:
+ 		xor rdx, rdx
 		inc r11
 		cmp rax, 0
 		jne to_div
@@ -218,10 +225,29 @@ process_dec_oct_bin:
 
 		ret
 
+process_str:
+		cld
+
+		push rsi
+		mov  rsi, [rbp + rcx * 8]
+		inc  rcx
+	copy:
+		cmp byte [rsi], END_OF_STRING
+		je end_of_copy
+		movsb
+		inc rax
+		jmp copy
+
+	end_of_copy:
+		pop rsi
+
+		ret
+
+
 ;TODO: remove copypast
 CASE_b:
 		mov r10, 2
-		call process_dec_oct_bin
+		call process_number
 		inc rsi
 		jmp SWITCH_END
 
@@ -230,13 +256,24 @@ CASE_c:
 		jmp  SWITCH_END
 CASE_d:
 		mov  r10, 10
-		call process_dec_oct_bin
+		call process_number
 		inc  rsi
 		jmp  SWITCH_END
 
 CASE_o:
 		mov r10, 8
-		call process_dec_oct_bin
+		call process_number
+		inc rsi
+		jmp SWITCH_END
+
+CASE_s:
+		inc rsi
+		call process_str
+		jmp  SWITCH_END
+
+CASE_x:
+		mov r10, 16
+		call process_number
 		inc rsi
 		jmp SWITCH_END
 
@@ -255,7 +292,19 @@ JMP_TABLE:
 		dq SWITCH_END			;108
 		dq SWITCH_END			;109
 		dq SWITCH_END			;110
-		dq CASE_o			;111
+		dq CASE_o				;111
+		dq SWITCH_END			;112
+		dq SWITCH_END			;113
+		dq SWITCH_END			;114
+		dq CASE_s				;115
+		dq SWITCH_END			;116
+		dq SWITCH_END			;117
+		dq SWITCH_END			;118
+		dq SWITCH_END			;119
+		dq CASE_x				;120
+		dq SWITCH_END			;121
+		dq SWITCH_END			;122
+
 
 section 	.data
 DIV_BUF:	db DIV_BUF_SIZE dup(0)
