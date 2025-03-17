@@ -10,20 +10,33 @@
 ;----------------------------------------------------------------------------
 ;								  CONSTANTS
 ;----------------------------------------------------------------------------
-END_OF_STRING equ 0d
-PERCENT_ASCII equ 37d
-BUF_SIZE 	  equ 16d
-DIV_BUF_SIZE  equ 64d
+BUF_SIZE 	  equ 32d
+
+
+;----------------------------------------------------------------------------
+;=====================================MACRO==================================
+;----------------------------------------------------------------------------
+%macro putchar 0
+		cmp rdi, BUFFER + BUF_SIZE
+		jne .no_overflow
+
+		call printBuffer
+
+	.no_overflow:
+		inc rdx
+		stosb
+
+%endmacro
+
 
 ;----------------------------------------------------------------------------
 ;									CODE
 ;----------------------------------------------------------------------------
 
 section 	.note.GNU-stack
-
+global myPrint								;for linker and C code
 section 	.text
 
-global myPrint								;for linker and C code
 
 ;----------------------------------------------------------------------------
 ;myPrint:								WARNING: ALL STRINGS HAVE TO HAVE 0 IN THE END
@@ -37,8 +50,8 @@ global myPrint								;for linker and C code
 ;write symbol function - if buffer overflowed, syscall and recover rdi. rsi may be different
 
 myPrint:
-
 		cld
+
 		pop rax
 
 		push r9 					;|push argumets in stack
@@ -50,87 +63,39 @@ myPrint:
 		mov  r8, rax
 		push rbp					;set_new base point
 		mov  rbp, rsp
-
-		mov  rcx, 1					;argument offset
-		xor  rax, rax				;writen sybmols
+		add  rbp, 8
+		xor  rdx, rdx						;writen sybmols
 
 		mov  rsi, BUFFER
 		xchg rsi, rdi
 
 	bufferisation:
-		cmp  byte [rsi], END_OF_STRING
+		cmp byte [rsi], 0
 		je end_of_bufferisation
 
-		cmp byte [rsi], PERCENT_ASCII
+		cmp byte [rsi], '%'
 		jne no_percent
 
-		inc rsi
 		call percentHandler
 		jmp bufferisation
 
 	no_percent:				;to a new function
-		call putCharInBuffer
+		lodsb
+		putchar
 		jmp bufferisation
 
 	end_of_bufferisation:
-		push rax
-
-		xor rdx, rdx
-		mov r10, BUF_SIZE
-		div r10
-
-		mov rax, 1
-		mov rdi, 1
-		mov rsi, BUFFER
-		syscall
-
+		push rdx
+		mov rdx, rdi
+		sub rdx, BUF_SIZE
+		call printBuffer
 		pop rax
+
 		pop rbp
-		add rsp, 8*5
+		add rsp, 40
 
-		push r8
+		push r8 			;arexit ???
 		ret
-
-
-;----------------------------------------------------------------------------
-;putChar
-;
-;Entry:
-;		rdi = destination (BUFFER[0] --- BUFFER[BUF_SIZE])
-;		rsi = symbol addr
-;
-;Destr:
-;		r10
-;----------------------------------------------------------------------------
-putCharInBuffer:		;TODO(maybe useless): create variable in stack frame which will contains num of printed symbols
-		cld 					;clear direction flag
-
-		mov r10, BUFFER			;|check if buffer is overflowed
-		add r10, BUF_SIZE		;|
-		cmp rdi, r10 			;|
-		jb not_overflow
-
-		push rcx
-		push rax				;|save regs
-		push rsi 				;|
-
-		mov rax, 1				;|print string
-		mov rdi, 1				;|to stdout
-		mov rsi, BUFFER			;|started in BUFFER
-		mov rdx, BUF_SIZE		;|with len BUF_SIZE
-		syscall					;|
-
-		mov rdi, BUFFER			;reset rdi to start of BUFFER
-
-		pop rsi 				;|recover regs
-		pop rax 				;|
-		pop rcx
-
-	not_overflow:
-		inc rax
-		movsb					;rsi -> rdi
-		ret
-
 ;----------------------------------------------------------------------------
 ;percentHandler:
 ;		%c = 99, %s = 115, %o = 111, %x = 120, %% = 37, %d = 100, %b = 98,
@@ -143,99 +108,149 @@ putCharInBuffer:		;TODO(maybe useless): create variable in stack frame which wil
 ;		rbx	<------------------------------------------------------------------------------MAYBE DANGER. BE CAREFUL
 ;----------------------------------------------------------------------------
 percentHandler:
-		xor rdx, rdx
-		mov byte dl, [rsi]
-		cmp byte dl, PERCENT_ASCII				;maybe pop address
-		jne switcher
-
-		inc rax
-		mov byte [rdi], dl
-		inc rdi
 		inc rsi
-		ret
-
-	switcher:
-		sub dl, 98					;TODO: replace magic nubber
-
+		mov byte dl, [rsi]
+		sub dl, '%'
 		cmp dl, 0
 		jb SWITCH_END
-		cmp dl, 22
+		cmp dl, 'z' - '%'
 		ja SWITCH_END
 
 		jmp [JMP_TABLE + rdx * 8]
 
 	SWITCH_END:
-		ret
-
-
-
-process_ascii:
-		push rsi
-		lea  rsi, [rbp + rcx * 8]
-		inc  rcx
-
-		call putCharInBuffer
-
-		pop rsi
 		inc rsi
 		ret
 
+JMP_TABLE:
+	dq CASE_PERCENT
+	times ('b' - '%' - 1) dq SWITCH_END
+	dq CASE_b	 			;98
+	dq CASE_c				;99
+	dq CASE_d				;100
+	times ('o' - 'd' - 1) dq SWITCH_END
+	dq CASE_o				;111
+	times ('s' - 'o' - 1) dq SWITCH_END
+	dq CASE_s				;115
+	times ('x' - 's' - 1) dq SWITCH_END
+	dq CASE_x				;120
+	times ('z' - 'x' - 1) dq SWITCH_END
+
+CASE_PERCENT:
+		mov rax, '%'
+		putchar
+		jmp SWITCH_END
+CASE_b:
+		mov r9, 2
+		call process_number
+		jmp SWITCH_END
+
+CASE_c:
+		call process_ascii
+		jmp  SWITCH_END
+CASE_d:
+		mov  r9, 10
+		call process_number
+		jmp  SWITCH_END
+
+CASE_o:
+		mov r9, 8
+		call process_number
+		jmp SWITCH_END
+
+CASE_s:
+		call process_str
+		jmp  SWITCH_END
+
+CASE_x:
+		mov r9, 16
+		call process_number
+		jmp SWITCH_END
+
+;----------------------------------------------------------------------------
+;printBuffer:
+;
+;Entry:
+;	rdx = size to print
+;
+;----------------------------------------------------------------------------
+printBuffer:
+		push rsi 				;|
+
+		mov rax, 1				;|print string
+		mov rdi, 1				;|to stdout
+		mov rsi, BUFFER			;|started in BUFFER
+		mov rdx, BUF_SIZE		;|with len BUF_SIZE
+
+		push rcx
+		syscall					;|
+		pop rcx
+
+		mov rdi, BUFFER			;reset rdi to start of BUFFER
+
+		pop rsi 				;|recover regs
+
+		ret
+
+process_ascii:
+		mov rax, [rbp]
+		add rbp, 8
+		inc rcx
+		putchar
+		ret
+
 ;r10 = base
+printNumberToBuffer:
+		pop r10
+
+	.printNumber:
+		pop rax
+		putchar
+		loop .printNumber
+
+		push r10
+		ret
+
 process_number:
-		push rax			;save rax
+		push rcx
 		xor  rax, rax
 		xor  rdx, rdx
+		xor  rcx, rcx
 
-		mov qword rax, [rbp + rcx * 8]		;|rax = mem[argumet++]
+		mov qword rax, [rbp]		;|rax = mem[argumet++]
+		add rbp, 8
+
+	nextNum:
+		div r9
+ 		add byte dl, '0'
+		cmp dl, '0' + 10
+		jb less10
+		add dl, 7				;TODO: REMOVE MAGIC NUMBER
+
+	less10:
 		inc rcx
-
-		mov r11, DIV_BUF 				;get div buffer address
-
-	to_div:
-		div r10
-		mov byte [r11], dl 				;get ascii number in buffer
- 		add byte [r11], '0'				;
-
-		cmp dl, 10
-		jb less_10
-		add byte [r11], 7				;TODO: REMOVE MAGIC NUMBER
-	less_10:
+		push rdx
  		xor rdx, rdx
-		inc r11
 		cmp rax, 0
-		jne to_div
+		jne nextNum
 
-		pop rax
+		call printNumberToBuffer
 
-		push rsi
-		mov rsi, r11
-		sub r11, DIV_BUF
-		dec rsi
-
-	reverse:
-		push r11
-		call putCharInBuffer
-		pop  r11
-		sub rsi, 2
-		dec r11
-		cmp r11, 0
-		jne reverse
-
-		pop rsi
-
+		pop rcx
 		ret
 
 process_str:
 		cld
 
 		push rsi
-		mov  rsi, [rbp + rcx * 8]
-		inc  rcx
+		mov  rsi, [rbp]
+		add  rbp, 8
 	copy:
-		cmp byte [rsi], END_OF_STRING
+		lodsb
+		cmp al, 0
 		je end_of_copy
-		movsb
-		inc rax
+		stosb
+		inc rdx
 		jmp copy
 
 	end_of_copy:
@@ -243,69 +258,8 @@ process_str:
 
 		ret
 
-
-;TODO: remove copypast
-CASE_b:
-		mov r10, 2
-		call process_number
-		inc rsi
-		jmp SWITCH_END
-
-CASE_c:
-		call process_ascii
-		jmp  SWITCH_END
-CASE_d:
-		mov  r10, 10
-		call process_number
-		inc  rsi
-		jmp  SWITCH_END
-
-CASE_o:
-		mov r10, 8
-		call process_number
-		inc rsi
-		jmp SWITCH_END
-
-CASE_s:
-		inc rsi
-		call process_str
-		jmp  SWITCH_END
-
-CASE_x:
-		mov r10, 16
-		call process_number
-		inc rsi
-		jmp SWITCH_END
-
 ; %c = 99, %s = 115, %o = 111, %x = 120, %% = 37, %d = 100, %b = 98,
-JMP_TABLE:
-		dq CASE_b	 			;98
-		dq CASE_c				;99
-		dq CASE_d				;100
-		dq SWITCH_END	 		;101
-		dq SWITCH_END	 		;102
-		dq SWITCH_END			;103
-		dq SWITCH_END			;104
-		dq SWITCH_END			;105
-		dq SWITCH_END			;106
-		dq SWITCH_END			;107
-		dq SWITCH_END			;108
-		dq SWITCH_END			;109
-		dq SWITCH_END			;110
-		dq CASE_o				;111
-		dq SWITCH_END			;112
-		dq SWITCH_END			;113
-		dq SWITCH_END			;114
-		dq CASE_s				;115
-		dq SWITCH_END			;116
-		dq SWITCH_END			;117
-		dq SWITCH_END			;118
-		dq SWITCH_END			;119
-		dq CASE_x				;120
-		dq SWITCH_END			;121
-		dq SWITCH_END			;122
 
 
 section 	.data
-DIV_BUF:	db DIV_BUF_SIZE dup(0)
 BUFFER:		db BUF_SIZE     dup(0)
