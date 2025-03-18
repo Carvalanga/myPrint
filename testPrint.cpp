@@ -37,7 +37,8 @@ int main()
                     par4, par5, par6, par7, par8,
                     -1, "love", 3802, 100, 33, 30);
 
-	// myPrint("%b!", 5);
+
+	// int c = myPrint("%x", 20);
 
 	return 0;
 }
