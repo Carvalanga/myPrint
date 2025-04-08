@@ -340,7 +340,7 @@ processNumberUnsigned:
 ;Destr:
 ;		rax
 ;----------------------------------------------------------------------------------------------------------------------------------------------
-processStr:;TODO: можно сделать проверку длины, чтобы не делать постоянно проверку на буффер
+processStr:
 		push rsi 					;save rsi
 		mov  rsi, [rbp] 			;|get address argument
 		add  rbp, 8 				;|
@@ -371,7 +371,7 @@ processStr:;TODO: можно сделать проверку длины, что�
 ;Destr:
 ;		r10, r12
 ;----------------------------------------------------------------------------------------------------------------------------------------------
-processTwoDegreeSigned:;TODO: можно сделать передачу параметров в ch
+processTwoDegreeSigned:
 		push rcx 									;save rcx because syscall which called in putchar in checkSigh
 		call checkAndPrintSign
 		pop rcx 									;recover rcx
